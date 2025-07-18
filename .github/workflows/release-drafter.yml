@@ -27,5 +27,7 @@ jobs:
      runs-on: ubuntu-latest
      steps:
        - uses: slawekjaranowski/release-drafter@commits-since
+         with:
+           commits-since: '2025-06-19T18:36:00'
          env:
            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
