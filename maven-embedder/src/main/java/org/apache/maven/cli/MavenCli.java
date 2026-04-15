@@ -625,7 +625,9 @@ public class MavenCli {
         } catch (IllegalUseOfUndefinedProperty e) {
             String message = "ERROR: Illegal use of undefined property: " + e.property;
             System.err.println(message);
-            if (cliRequest.request.getRootDirectory() == null) {
+            try {
+                cliRequest.request.getRootDirectory();
+            } catch (IllegalStateException ex) {
                 System.err.println();
                 System.err.println(RootLocator.UNABLE_TO_FIND_ROOT_PROJECT_MESSAGE);
             }
@@ -1652,10 +1654,9 @@ public class MavenCli {
                         throw new IllegalUseOfUndefinedProperty(expression);
                     }
                 } else if ("session.rootDirectory".equals(expression)) {
-                    Path rootDirectory = cliRequest.request.getRootDirectory();
-                    if (rootDirectory != null) {
-                        return rootDirectory.toString();
-                    } else {
+                    try {
+                        return cliRequest.request.getRootDirectory();
+                    } catch (IllegalStateException e) {
                         throw new IllegalUseOfUndefinedProperty(expression);
                     }
                 }
