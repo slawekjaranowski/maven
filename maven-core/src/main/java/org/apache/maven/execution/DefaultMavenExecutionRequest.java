@@ -31,6 +31,7 @@ import java.util.Properties;
 import org.apache.maven.artifact.repository.ArtifactRepository;
 import org.apache.maven.eventspy.internal.EventSpyDispatcher;
 import org.apache.maven.model.Profile;
+import org.apache.maven.model.root.RootLocator;
 import org.apache.maven.project.DefaultProjectBuildingRequest;
 import org.apache.maven.project.ProjectBuildingRequest;
 import org.apache.maven.properties.internal.SystemProperties;
@@ -211,7 +212,11 @@ public class DefaultMavenExecutionRequest implements MavenExecutionRequest {
         copy.setBuilderId(original.getBuilderId());
 
         copy.setTopDirectory(original.getTopDirectory());
-        copy.setRootDirectory(original.getRootDirectory());
+        try {
+            copy.setRootDirectory(original.getRootDirectory());
+        } catch (IllegalStateException e) {
+            // ignore during copy
+        }
 
         return copy;
     }
@@ -1120,6 +1125,9 @@ public class DefaultMavenExecutionRequest implements MavenExecutionRequest {
 
     @Override
     public Path getRootDirectory() {
+        if (rootDirectory == null) {
+            throw new IllegalStateException(RootLocator.UNABLE_TO_FIND_ROOT_PROJECT_MESSAGE);
+        }
         return rootDirectory;
     }
 
