@@ -20,6 +20,7 @@ package org.apache.maven.internal.aether;
 
 import javax.inject.Inject;
 import javax.inject.Named;
+import javax.inject.Singleton;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -38,6 +39,7 @@ import org.apache.maven.artifact.handler.manager.ArtifactHandlerManager;
 import org.apache.maven.bridge.MavenRepositorySystem;
 import org.apache.maven.eventspy.internal.EventSpyDispatcher;
 import org.apache.maven.execution.MavenExecutionRequest;
+import org.apache.maven.internal.RepositorySystemSessionFactory;
 import org.apache.maven.model.ModelBase;
 import org.apache.maven.repository.internal.MavenSessionBuilderSupplier;
 import org.apache.maven.repository.internal.scopes.Maven3ScopeManagerConfiguration;
@@ -54,6 +56,7 @@ import org.codehaus.plexus.configuration.xml.XmlPlexusConfiguration;
 import org.codehaus.plexus.logging.Logger;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.eclipse.aether.ConfigurationProperties;
+import org.eclipse.aether.DefaultRepositorySystemSession;
 import org.eclipse.aether.RepositoryException;
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
@@ -92,8 +95,9 @@ import org.eclipse.sisu.Nullable;
 /**
  * @since 3.3.0
  */
+@Singleton
 @Named
-public class DefaultRepositorySystemSessionFactory {
+public class DefaultRepositorySystemSessionFactory implements RepositorySystemSessionFactory {
     /**
      * User property for chained LRM: list of "tail" local repository paths (separated by comma), to be used with
      * {@link ChainedLocalRepositoryManager}.
@@ -214,8 +218,18 @@ public class DefaultRepositorySystemSessionFactory {
 
     private final InternalScopeManager scopeManager = new ScopeManagerImpl(Maven3ScopeManagerConfiguration.INSTANCE);
 
+    /**
+     * For legacy consumers; hopefully nobody.
+     */
+    @Deprecated
+    public DefaultRepositorySystemSession newRepositorySession(MavenExecutionRequest request) {
+        return new DefaultRepositorySystemSession(
+                newRepositorySessionBuilder(request).build());
+    }
+
     @SuppressWarnings("checkstyle:methodlength")
-    public RepositorySystemSession.SessionBuilder newRepositorySession(MavenExecutionRequest request) {
+    @Override
+    public RepositorySystemSession.SessionBuilder newRepositorySessionBuilder(MavenExecutionRequest request) {
         // config
         Map<Object, Object> configProps = new LinkedHashMap<>();
         configProps.put(ConfigurationProperties.USER_AGENT, getUserAgent());
