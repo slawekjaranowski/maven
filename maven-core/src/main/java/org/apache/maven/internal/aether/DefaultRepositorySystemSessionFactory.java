@@ -233,12 +233,24 @@ public class DefaultRepositorySystemSessionFactory {
 
         mainSessionBuilder.setOffline(request.isOffline());
         mainSessionBuilder.setChecksumPolicy(request.getGlobalChecksumPolicy());
-        if (request.isNoSnapshotUpdates()) {
-            mainSessionBuilder.setUpdatePolicy(RepositoryPolicy.UPDATE_POLICY_NEVER);
-        } else if (request.isUpdateSnapshots()) {
-            mainSessionBuilder.setUpdatePolicy(RepositoryPolicy.UPDATE_POLICY_ALWAYS);
+
+        if (request.getArtifactsUpdatePolicy() == null && request.getMetadataUpdatePolicy() == null) {
+            // we go "old" way
+            if (request.isNoSnapshotUpdates()) {
+                mainSessionBuilder.setUpdatePolicy(RepositoryPolicy.UPDATE_POLICY_NEVER);
+            } else if (request.isUpdateSnapshots()) {
+                mainSessionBuilder.setUpdatePolicy(RepositoryPolicy.UPDATE_POLICY_ALWAYS);
+            } else {
+                mainSessionBuilder.setUpdatePolicy(null);
+            }
         } else {
-            mainSessionBuilder.setUpdatePolicy(null);
+            // we go "new" way
+            if (request.getArtifactsUpdatePolicy() != null) {
+                mainSessionBuilder.setArtifactUpdatePolicy(request.getArtifactsUpdatePolicy());
+            }
+            if (request.getMetadataUpdatePolicy() != null) {
+                mainSessionBuilder.setMetadataUpdatePolicy(request.getMetadataUpdatePolicy());
+            }
         }
 
         int errorPolicy = 0;

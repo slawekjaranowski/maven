@@ -113,6 +113,7 @@ import org.codehaus.plexus.logging.LoggerManager;
 import org.codehaus.plexus.util.StringUtils;
 import org.codehaus.plexus.util.xml.pull.XmlPullParserException;
 import org.eclipse.aether.DefaultRepositoryCache;
+import org.eclipse.aether.repository.RepositoryPolicy;
 import org.eclipse.aether.transfer.TransferListener;
 import org.slf4j.ILoggerFactory;
 import org.slf4j.Logger;
@@ -1318,6 +1319,26 @@ public class MavenCli {
             noSnapshotUpdates = true;
         }
 
+        boolean updateSnapshots = false;
+        if (commandLine.hasOption(CLIManager.UPDATE_SNAPSHOTS)) {
+            updateSnapshots = true;
+        }
+
+        String artifactsUpdatePolicy = null;
+        String metadataUpdatePolicy = null;
+        if (commandLine.hasOption(CLIManager.UPDATE_ARTIFACTS)) {
+            artifactsUpdatePolicy = RepositoryPolicy.UPDATE_POLICY_ALWAYS;
+        }
+        if (artifactsUpdatePolicy == null && commandLine.hasOption(CLIManager.ARTIFACTS_UPDATE_POLICY)) {
+            artifactsUpdatePolicy = commandLine.getOptionValue(CLIManager.ARTIFACTS_UPDATE_POLICY);
+        }
+        if (commandLine.hasOption(CLIManager.UPDATE_METADATA)) {
+            metadataUpdatePolicy = RepositoryPolicy.UPDATE_POLICY_ALWAYS;
+        }
+        if (metadataUpdatePolicy == null && commandLine.hasOption(CLIManager.METADATA_UPDATE_POLICY)) {
+            metadataUpdatePolicy = commandLine.getOptionValue(CLIManager.METADATA_UPDATE_POLICY);
+        }
+
         // ----------------------------------------------------------------------
         //
         // ----------------------------------------------------------------------
@@ -1343,12 +1364,6 @@ public class MavenCli {
 
         if (commandLine.hasOption(CLIManager.OFFLINE)) {
             request.setOffline(true);
-        }
-
-        boolean updateSnapshots = false;
-
-        if (commandLine.hasOption(CLIManager.UPDATE_SNAPSHOTS)) {
-            updateSnapshots = true;
         }
 
         String globalChecksumPolicy = null;
@@ -1427,6 +1442,8 @@ public class MavenCli {
                 .setTransferListener(transferListener) // default: batch mode which goes along with interactive
                 .setUpdateSnapshots(updateSnapshots) // default: false
                 .setNoSnapshotUpdates(noSnapshotUpdates) // default: false
+                .setArtifactsUpdatePolicy(artifactsUpdatePolicy) // default: null
+                .setMetadataUpdatePolicy(metadataUpdatePolicy) // default: null
                 .setGlobalChecksumPolicy(globalChecksumPolicy) // default: warn
                 .setMultiModuleProjectDirectory(cliRequest.multiModuleProjectDirectory);
 
