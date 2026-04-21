@@ -16,12 +16,15 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-package org.apache.maven.internal.aether;
+package org.apache.maven.repository.internal.filters;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
+import org.apache.maven.repository.internal.VersionFilterBuilder;
 import org.eclipse.aether.RepositoryException;
 import org.eclipse.aether.RepositorySystemSession;
 import org.eclipse.aether.artifact.DefaultArtifact;
@@ -30,10 +33,11 @@ import org.eclipse.aether.graph.Dependency;
 import org.eclipse.aether.internal.impl.collect.DefaultVersionFilterContext;
 import org.eclipse.aether.resolution.VersionRangeRequest;
 import org.eclipse.aether.resolution.VersionRangeResult;
-import org.eclipse.aether.util.graph.version.HighestVersionFilter;
+import org.eclipse.aether.util.graph.version.ContextPredicateDelegatingVersionFilter;
 import org.eclipse.aether.util.version.GenericVersionScheme;
 import org.eclipse.aether.version.InvalidVersionSpecificationException;
 import org.eclipse.aether.version.Version;
+import org.eclipse.aether.version.VersionConstraint;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -42,19 +46,20 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
-/**
- * UT for {@link DefaultRepositorySystemSessionFactory}.
- */
-public class DefaultRepositorySystemSessionFactoryTest {
+public class DefaultVersionFilterBuilderTest {
     final GenericVersionScheme versionScheme = new GenericVersionScheme();
     RepositorySystemSession session;
-    DefaultRepositorySystemSessionFactory factory;
+    DefaultVersionFilterBuilder factory;
+    Map<String, Object> sessionConfigProperties;
 
     @BeforeEach
     public void prepare() {
         session = mock(RepositorySystemSession.class);
-        factory = new DefaultRepositorySystemSessionFactory();
+        sessionConfigProperties = new HashMap<>();
+        when(session.getConfigProperties()).thenReturn(sessionConfigProperties);
+        factory = new DefaultVersionFilterBuilder();
     }
 
     private Version version(String spec) {
@@ -65,11 +70,20 @@ public class DefaultRepositorySystemSessionFactoryTest {
         }
     }
 
+    private VersionConstraint versionConstraint(String spec) {
+        try {
+            return versionScheme.parseVersionConstraint(spec);
+        } catch (InvalidVersionSpecificationException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Test
     public void versionFilterUnsupportedExpression() {
         // null and empty string are OK
-        assertThrows(IllegalArgumentException.class, () -> factory.buildVersionFilter("[*"));
-        assertThrows(IllegalArgumentException.class, () -> factory.buildVersionFilter("foobar"));
+        assertThrows(IllegalArgumentException.class, () -> factory.buildVersionFilter("[*", this::versionConstraint));
+        assertThrows(
+                IllegalArgumentException.class, () -> factory.buildVersionFilter("foobar", this::versionConstraint));
     }
 
     /**
@@ -78,17 +92,50 @@ public class DefaultRepositorySystemSessionFactoryTest {
     @Test
     public void versionFilterHighest() {
         VersionFilter vf;
-        vf = factory.buildVersionFilter("h");
+        vf = factory.buildVersionFilter("h", this::versionConstraint).orElse(null);
         assertNotNull(vf);
-        assertInstanceOf(HighestVersionFilter.class, vf);
+        assertInstanceOf(ContextPredicateDelegatingVersionFilter.class, vf);
 
-        vf = factory.buildVersionFilter("h(5)");
+        vf = factory.buildVersionFilter("h(5)", this::versionConstraint).orElse(null);
         assertNotNull(vf);
-        assertInstanceOf(HighestVersionFilter.class, vf);
+        assertInstanceOf(ContextPredicateDelegatingVersionFilter.class, vf);
 
-        vf = factory.buildVersionFilter("h(1@group)");
+        vf = factory.buildVersionFilter("h(1)@group", this::versionConstraint).orElse(null);
         assertNotNull(vf);
-        // assertInstanceOf(HighestVersionFilter.class, vf); // this is wrapped instance
+        assertInstanceOf(ContextPredicateDelegatingVersionFilter.class, vf); // this is wrapped instance
+    }
+
+    /**
+     * Creating {@code h(1@group)} and incoming artifact G does not match => not applied.
+     */
+    @Test
+    public void versionFilterSuppressed() throws RepositoryException {
+        VersionFilter vf;
+
+        vf = factory.buildVersionFilter("h(2)@group", this::versionConstraint).orElse(null);
+        assertNotNull(vf);
+
+        List<Version> versions = Arrays.asList(version("1.0"), version("1.1"), version("1.2"));
+
+        DefaultVersionFilterContext context = new DefaultVersionFilterContext(session);
+        VersionRangeResult result =
+                new VersionRangeResult(new VersionRangeRequest()).setVersions(new ArrayList<>(versions));
+        context.set(new Dependency(new DefaultArtifact("group:a:[1,)"), ""), result);
+
+        vf.filterVersions(context);
+
+        // hit
+        assertEquals(2, context.get().size());
+        assertEquals(version("1.1"), context.get().get(0));
+        assertEquals(version("1.2"), context.get().get(1));
+
+        sessionConfigProperties.put(VersionFilterBuilder.MAVEN_VERSION_FILTER_SUPPRESSED, Boolean.TRUE);
+
+        context = new DefaultVersionFilterContext(session);
+        context.set(new Dependency(new DefaultArtifact("group:a:[1,)"), ""), result);
+
+        // suppressed
+        assertEquals(versions, context.get());
     }
 
     /**
@@ -98,7 +145,7 @@ public class DefaultRepositorySystemSessionFactoryTest {
     public void versionFilterHLFuncMiss() throws RepositoryException {
         VersionFilter vf;
 
-        vf = factory.buildVersionFilter("h(2@group)");
+        vf = factory.buildVersionFilter("h(2)@group", this::versionConstraint).orElse(null);
         assertNotNull(vf);
 
         List<Version> versions = Arrays.asList(version("1.0"), version("1.1"), version("1.2"));
@@ -110,7 +157,7 @@ public class DefaultRepositorySystemSessionFactoryTest {
 
         vf.filterVersions(context);
 
-        assertEquals(versions, context.get());
+        vf.filterVersions(context);
     }
 
     /**
@@ -120,7 +167,7 @@ public class DefaultRepositorySystemSessionFactoryTest {
     public void versionFilterHLFuncHit() throws RepositoryException {
         VersionFilter vf;
 
-        vf = factory.buildVersionFilter("h(2@group)");
+        vf = factory.buildVersionFilter("h(2)@group", this::versionConstraint).orElse(null);
         assertNotNull(vf);
 
         List<Version> versions = Arrays.asList(version("1.0"), version("1.1"), version("1.2"));
@@ -144,7 +191,7 @@ public class DefaultRepositorySystemSessionFactoryTest {
     public void versionFilterLowestFuncMiss() throws RepositoryException {
         VersionFilter vf;
 
-        vf = factory.buildVersionFilter("l(2@group)");
+        vf = factory.buildVersionFilter("l(2)@group", this::versionConstraint).orElse(null);
         assertNotNull(vf);
 
         List<Version> versions = Arrays.asList(version("1.0"), version("1.1"), version("1.2"));
@@ -166,7 +213,7 @@ public class DefaultRepositorySystemSessionFactoryTest {
     public void versionFilterLowestFuncHit() throws RepositoryException {
         VersionFilter vf;
 
-        vf = factory.buildVersionFilter("l(2@group)");
+        vf = factory.buildVersionFilter("l(2)@group", this::versionConstraint).orElse(null);
         assertNotNull(vf);
 
         List<Version> versions = Arrays.asList(version("1.0"), version("1.1"), version("1.2"));
@@ -187,7 +234,8 @@ public class DefaultRepositorySystemSessionFactoryTest {
     public void versionFilterExcludeFuncHit() throws RepositoryException {
         VersionFilter vf;
 
-        vf = factory.buildVersionFilter("e(group:a:[1.1,2.0))");
+        vf = factory.buildVersionFilter("e([1.1,2.0))@group:a", this::versionConstraint)
+                .orElse(null);
         assertNotNull(vf);
 
         List<Version> versions = Arrays.asList(version("1.0"), version("1.1"), version("1.2"), version("2.0"));
@@ -208,7 +256,8 @@ public class DefaultRepositorySystemSessionFactoryTest {
     public void versionFilterIncludeFuncHit() throws RepositoryException {
         VersionFilter vf;
 
-        vf = factory.buildVersionFilter("i(group:a:[1.1,),[2.0,))");
+        vf = factory.buildVersionFilter("i([1.1,),[2.0,))@group:a", this::versionConstraint)
+                .orElse(null);
         assertNotNull(vf);
 
         List<Version> versions = Arrays.asList(version("1.0"), version("1.1"), version("1.2"), version("2.0"));

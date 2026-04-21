@@ -31,7 +31,7 @@ import org.apache.maven.artifact.repository.metadata.RepositoryMetadata;
 import org.codehaus.plexus.logging.Logger;
 import org.codehaus.plexus.logging.console.ConsoleLogger;
 import org.codehaus.plexus.testing.PlexusTest;
-import org.eclipse.aether.internal.impl.DefaultTrackingFileManager;
+import org.eclipse.aether.internal.impl.LegacyTrackingFileManager;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -60,7 +60,7 @@ public class DefaultUpdateCheckManagerTest extends AbstractArtifactComponentTest
         super.setUp();
 
         updateCheckManager = new DefaultUpdateCheckManager(
-                new ConsoleLogger(Logger.LEVEL_DEBUG, "test"), new DefaultTrackingFileManager());
+                new ConsoleLogger(Logger.LEVEL_DEBUG, "test"), new LegacyTrackingFileManager());
     }
 
     @Test

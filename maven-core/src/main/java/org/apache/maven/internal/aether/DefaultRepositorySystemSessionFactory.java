@@ -30,8 +30,6 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
-import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import org.apache.maven.RepositoryUtils;
@@ -42,6 +40,7 @@ import org.apache.maven.execution.MavenExecutionRequest;
 import org.apache.maven.internal.RepositorySystemSessionFactory;
 import org.apache.maven.model.ModelBase;
 import org.apache.maven.repository.internal.MavenSessionBuilderSupplier;
+import org.apache.maven.repository.internal.VersionFilterBuilder;
 import org.apache.maven.repository.internal.scopes.Maven3ScopeManagerConfiguration;
 import org.apache.maven.rtinfo.RuntimeInformation;
 import org.apache.maven.settings.Mirror;
@@ -57,13 +56,8 @@ import org.codehaus.plexus.logging.Logger;
 import org.codehaus.plexus.util.xml.Xpp3Dom;
 import org.eclipse.aether.ConfigurationProperties;
 import org.eclipse.aether.DefaultRepositorySystemSession;
-import org.eclipse.aether.RepositoryException;
 import org.eclipse.aether.RepositorySystem;
 import org.eclipse.aether.RepositorySystemSession;
-import org.eclipse.aether.artifact.Artifact;
-import org.eclipse.aether.artifact.DefaultArtifact;
-import org.eclipse.aether.collection.DependencyCollectionContext;
-import org.eclipse.aether.collection.VersionFilter;
 import org.eclipse.aether.impl.scope.InternalScopeManager;
 import org.eclipse.aether.internal.impl.scope.ScopeManagerImpl;
 import org.eclipse.aether.repository.LocalRepository;
@@ -73,12 +67,6 @@ import org.eclipse.aether.repository.WorkspaceReader;
 import org.eclipse.aether.resolution.ResolutionErrorPolicy;
 import org.eclipse.aether.util.ConfigUtils;
 import org.eclipse.aether.util.graph.manager.TransitiveDependencyManager;
-import org.eclipse.aether.util.graph.version.ChainedVersionFilter;
-import org.eclipse.aether.util.graph.version.ContextualSnapshotVersionFilter;
-import org.eclipse.aether.util.graph.version.HighestVersionFilter;
-import org.eclipse.aether.util.graph.version.LowestVersionFilter;
-import org.eclipse.aether.util.graph.version.PredicateVersionFilter;
-import org.eclipse.aether.util.graph.version.SnapshotVersionFilter;
 import org.eclipse.aether.util.listener.ChainedRepositoryListener;
 import org.eclipse.aether.util.repository.AuthenticationBuilder;
 import org.eclipse.aether.util.repository.ChainedLocalRepositoryManager;
@@ -88,7 +76,6 @@ import org.eclipse.aether.util.repository.DefaultProxySelector;
 import org.eclipse.aether.util.repository.SimpleResolutionErrorPolicy;
 import org.eclipse.aether.util.version.GenericVersionScheme;
 import org.eclipse.aether.version.InvalidVersionSpecificationException;
-import org.eclipse.aether.version.Version;
 import org.eclipse.aether.version.VersionConstraint;
 import org.eclipse.sisu.Nullable;
 
@@ -136,24 +123,11 @@ public class DefaultRepositorySystemSessionFactory implements RepositorySystemSe
     private static final String MAVEN_REPO_LOCAL_RECORD_REVERSE_TREE = "maven.repo.local.recordReverseTree";
 
     /**
-     * User property for version filter expression used in session, applied to resolving ranges: a semicolon separated
-     * list of filters to apply. By default, no version filter is applied (like in Maven 3).
-     * <br/>
-     * Supported filters:
-     * <ul>
-     *     <li>{@code "h"} or {@code "h(num[@G[:A]])"} - highest version or top list of highest ones filter</li>
-     *     <li>{@code "l"} or {@code "l(num[@G[:A]])"} - lowest version or bottom list of lowest ones filter</li>
-     *     <li>{@code "s"} - contextual snapshot filter</li>
-     *     <li>{@code "ns"} - unconditional snapshot filter (no snapshots selected from ranges)</li>
-     *     <li>{@code "e(G:A:V)"} - predicate filter (excludes G:A:V from range, if hit, V can be version constraint)</li>
-     *     <li>{@code "i(G:A:V)"} - predicate filter (includes G:A:V from range, if hit, V can be version constraint)</li>
-     * </ul>
-     * Example filter expression: <code>"h(5);s;e(org.foo:bar:1)</code> will cause: ranges are filtered for "top 5" (instead
-     * full range), snapshots are banned if root project is not a snapshot, and if range for <code>org.foo:bar</code> is
-     * being processed, version 1 is omitted. Value in this property builds
-     * <code>org.eclipse.aether.collection.VersionFilter</code> instance.
+     * User property for version filter expression used in session, applied to resolving ranges.
+     * For syntax, see {@link VersionFilterBuilder} implementation.
      *
      * @since 3.10.0
+     * @see VersionFilterBuilder
      */
     private static final String MAVEN_VERSION_FILTER = "maven.session.versionFilter";
 
@@ -209,10 +183,13 @@ public class DefaultRepositorySystemSessionFactory implements RepositorySystemSe
     private EventSpyDispatcher eventSpyDispatcher;
 
     @Inject
-    MavenRepositorySystem mavenRepositorySystem;
+    private MavenRepositorySystem mavenRepositorySystem;
 
     @Inject
     private RuntimeInformation runtimeInformation;
+
+    @Inject
+    private VersionFilterBuilder versionFilterBuilder;
 
     private final GenericVersionScheme versionScheme = new GenericVersionScheme();
 
@@ -296,10 +273,9 @@ public class DefaultRepositorySystemSessionFactory implements RepositorySystemSe
             }
         }
 
-        VersionFilter versionFilter = buildVersionFilter((String) configProps.get(MAVEN_VERSION_FILTER));
-        if (versionFilter != null) {
-            mainSessionBuilder.setVersionFilter(versionFilter);
-        }
+        versionFilterBuilder
+                .buildVersionFilter((String) configProps.get(MAVEN_VERSION_FILTER), this::parseVersionConstraint)
+                .map(mainSessionBuilder::setVersionFilter);
 
         boolean dependencyManagerTransitivity =
                 ConfigUtils.getBoolean(configProps, false, MAVEN_RESOLVER_DEPENDENCY_MANAGER_TRANSITIVITY);
@@ -534,106 +510,6 @@ public class DefaultRepositorySystemSessionFactory implements RepositorySystemSe
         } else {
             // resolve based on $CWD
             return Paths.get(string).normalize().toAbsolutePath();
-        }
-    }
-
-    /**
-     * Visible for testing.
-     */
-    VersionFilter buildVersionFilter(String filterExpression) {
-        ArrayList<VersionFilter> filters = new ArrayList<>();
-        if (filterExpression != null) {
-            List<String> expressions = Arrays.stream(filterExpression.split(";"))
-                    .filter(s -> !s.trim().isEmpty())
-                    .collect(Collectors.toList());
-            for (String expression : expressions) {
-                if ("h".equals(expression)) {
-                    filters.add(new HighestVersionFilter());
-                } else if ("l".equals(expression)) {
-                    filters.add(new LowestVersionFilter());
-                } else if ((expression.startsWith("h(") || expression.startsWith("l(")) && expression.endsWith(")")) {
-                    Function<Integer, VersionFilter> filterSupplier =
-                            n -> expression.startsWith("h(") ? new HighestVersionFilter(n) : new LowestVersionFilter(n);
-                    String inner = expression.substring(2, expression.length() - 1);
-                    int num;
-                    String g;
-                    String a;
-                    if (inner.contains("@")) {
-                        num = Integer.parseInt(inner.substring(0, inner.indexOf('@')));
-                        String remainder = inner.substring(inner.indexOf('@') + 1);
-                        if (remainder.contains(":")) {
-                            g = remainder.substring(0, remainder.indexOf(':'));
-                            a = remainder.substring(remainder.indexOf(':') + 1);
-                        } else {
-                            g = remainder;
-                            a = null;
-                        }
-                    } else {
-                        num = Integer.parseInt(inner);
-                        g = null;
-                        a = null;
-                    }
-                    if (g == null) {
-                        filters.add(filterSupplier.apply(num));
-                    } else {
-                        VersionFilter versionFilter = filterSupplier.apply(num);
-                        filters.add(new VersionFilter() {
-                            @Override
-                            public void filterVersions(VersionFilterContext context) throws RepositoryException {
-                                Artifact dependencyArtifact =
-                                        context.getDependency().getArtifact();
-                                if (g.equals(dependencyArtifact.getGroupId())
-                                        && (a == null || a.equals(dependencyArtifact.getArtifactId()))) {
-                                    versionFilter.filterVersions(context);
-                                }
-                            }
-
-                            @Override
-                            public VersionFilter deriveChildFilter(DependencyCollectionContext context) {
-                                return this;
-                            }
-                        });
-                    }
-                } else if ("s".equals(expression)) {
-                    filters.add(new ContextualSnapshotVersionFilter());
-                } else if ("ns".equals(expression)) {
-                    filters.add(new SnapshotVersionFilter());
-                } else if ((expression.startsWith("e(") || (expression.startsWith("i("))) && expression.endsWith(")")) {
-                    Artifact artifact = new DefaultArtifact(expression.substring(2, expression.length() - 1));
-                    VersionConstraint versionConstraint = parseVersionConstraint(artifact.getVersion());
-                    Predicate<Artifact> predicate = a -> {
-                        if (artifact.getGroupId().equals(a.getGroupId())
-                                && artifact.getArtifactId().equals(a.getArtifactId())) {
-                            if (expression.startsWith("e(")) {
-                                // exclude
-                                return !versionConstraint.containsVersion(parseVersion(a.getVersion()));
-                            } else {
-                                // include
-                                return versionConstraint.containsVersion(parseVersion(a.getVersion()));
-                            }
-                        }
-                        return true;
-                    };
-                    filters.add(new PredicateVersionFilter(predicate));
-                } else {
-                    throw new IllegalArgumentException("Unsupported filter expression: " + expression);
-                }
-            }
-        }
-        if (filters.isEmpty()) {
-            return null;
-        } else if (filters.size() == 1) {
-            return filters.get(0);
-        } else {
-            return ChainedVersionFilter.newInstance(filters);
-        }
-    }
-
-    private Version parseVersion(String spec) {
-        try {
-            return versionScheme.parseVersion(spec);
-        } catch (InvalidVersionSpecificationException e) {
-            throw new RuntimeException(e);
         }
     }
 
