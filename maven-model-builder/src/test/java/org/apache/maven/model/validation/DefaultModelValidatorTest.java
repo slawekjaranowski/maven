@@ -878,4 +878,16 @@ public class DefaultModelValidatorTest {
                         + "${project.version} expressions are not supported during profile activation.",
                 result.getWarnings().get(1));
     }
+
+    @Test
+    public void testMinimalWithParent() throws Exception {
+        SimpleProblemCollector result = validateRaw("raw-model/minimal-with-parent.xml");
+        assertViolations(result, 0, 0, 0);
+    }
+
+    @Test
+    public void testMinimalWithoutParent() throws Exception {
+        SimpleProblemCollector result = validateRaw("raw-model/minimal-without-parent.xml");
+        assertViolations(result, 0, 0, 0);
+    }
 }
