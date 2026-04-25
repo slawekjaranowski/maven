@@ -167,7 +167,7 @@
         <field xdoc.separator="blank">
           <name>name</name>
           <version>3.0.0+</version>
-          <description>The full name of the project. If not specified aretifactId will be used.</description>
+          <description>The full name of the project. If not specified, the artifactId will be used.</description>
           <type>String</type>
         </field>
         <field>
@@ -774,7 +774,6 @@
         <field>
           <name>sourceDirectory</name>
           <version>3.0.0+</version>
-          <required>true</required>
           <description><![CDATA[
             This element specifies a directory containing the source of the project. The
             generated build system will compile the sources from this directory when the project is
@@ -786,7 +785,6 @@
         <field>
           <name>scriptSourceDirectory</name>
           <version>4.0.0+</version>
-          <required>true</required>
           <description><![CDATA[
             This element specifies a directory containing the script sources of the
             project. This directory is meant to be different from the sourceDirectory, in that its
@@ -799,7 +797,6 @@
         <field>
           <name>testSourceDirectory</name>
           <version>4.0.0+</version>
-          <required>true</required>
           <description><![CDATA[
             This element specifies a directory containing the unit test source of the
             project. The generated build system will compile these directories when the project is
