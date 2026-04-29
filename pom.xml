@@ -23,7 +23,7 @@ under the License.
   <parent>
     <groupId>org.apache.maven</groupId>
     <artifactId>maven-parent</artifactId>
-    <version>47</version>
+    <version>48-SNAPSHOT</version>
     <relativePath />
   </parent>
 
@@ -172,9 +172,6 @@ under the License.
     <woodstoxVersion>7.1.1</woodstoxVersion>
     <xmlunitVersion>2.11.0</xmlunitVersion>
     <jacocoArgLine />
-
-    <version.spotless-maven-plugin>3.0.0</version.spotless-maven-plugin>
-    <version.palantirJavaFormat>2.80.0</version.palantirJavaFormat>
 
     <!-- Set as system property in surefire/failsafe to propagate to tests and IT Verifier -->
     <toolboxVersion>0.14.1</toolboxVersion>
@@ -690,6 +687,16 @@ under the License.
     <!--bootstrap-start-comment-->
   </dependencyManagement>
   <!--bootstrap-end-comment-->
+
+  <repositories>
+    <repository>
+      <releases>
+        <enabled>false</enabled>
+      </releases>
+      <id>apache.snapshots</id>
+      <url>https://repository.apache.org/snapshots</url>
+    </repository>
+  </repositories>
 
   <build>
     <pluginManagement>
